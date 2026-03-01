@@ -40,11 +40,12 @@ jobs:
             $bmp = New-Object System.Drawing.Bitmap 256,256
             $g   = [System.Drawing.Graphics]::FromImage($bmp)
             $g.Clear([System.Drawing.Color]::FromArgb(13,15,18))
-            $pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(232,160,32)), 12
+            $pen   = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(232,160,32)), 12
+            $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(232,160,32))
             $g.DrawEllipse($pen, 40, 40, 176, 176)
-            $g.FillEllipse([System.Drawing.Brushes]::FromArgb(232,160,32,20), 80, 80, 96, 96)
+            $g.FillEllipse($brush, 80, 80, 96, 96)
             $bmp.Save("public/icon.ico")
-            $g.Dispose(); $bmp.Dispose()
+            $pen.Dispose(); $brush.Dispose(); $g.Dispose(); $bmp.Dispose()
           }
 
       - name: Build UI
