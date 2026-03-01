@@ -26,7 +26,7 @@
     "asar": true,
     "publish": [{
       "provider": "github",
-      "owner": "SOSTITUISCI_USERNAME",
+      "owner": "Xaicon-coder",
       "repo": "file-recovery-pro"
     }],
     "files": [
