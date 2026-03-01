@@ -40,8 +40,7 @@
         { "target": "nsis", "arch": ["x64"] },
         { "target": "portable", "arch": ["x64"] }
       ],
-      "requestedExecutionLevel": "requireAdministrator",
-      "icon": "public/icon.ico"
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "nsis": {
       "oneClick": false,
@@ -50,9 +49,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "File Recovery Pro",
-      "deleteAppDataOnUninstall": true,
-      "installerIcon": "public/icon.ico",
-      "uninstallerIcon": "public/icon.ico"
+      "deleteAppDataOnUninstall": true
     },
     "portable": {
       "artifactName": "${productName}_v${version}_Portable.exe"
