@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export default function TitleBar({ api, version, update, onInstall }) {
+export default function TitleBar({ api, version, update, onInstall, view, onUpdates }) {
   const isDl    = update?.event === 'downloading' || update?.event === 'progress';
   const isReady = update?.event === 'ready';
   const pct     = update?.pct ?? 0;
