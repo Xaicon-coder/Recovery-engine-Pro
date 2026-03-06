@@ -37,17 +37,4 @@
 
 ---
 
-## 🚀 Installazione & Setup
-
-Avvia il tuo ambiente di sviluppo in pochi semplici passi:
-
-```bash
-# 1. Clona la repository
-git clone [https://github.com/tuousername/FileRecoveryPro.git](https://github.com/tuousername/FileRecoveryPro.git)
-cd FileRecoveryPro
-
-# 2. Installa le dipendenze necessarie
-npm install
-
-# 3. Avvia l'app in modalità Development
-npm run dev
+sha256:47a9d4fa1b9a4a5035aac95b439bb41f8edcab01f7f91909008e2b2115562844
