@@ -55,6 +55,26 @@ function createWindow() {
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
+// ─── Cleanup automatico prima di chiudere ─────────────────────────────────────
+app.on('before-quit', (event) => {
+  try {
+    logger.info('Application shutting down, performing cleanup...');
+    
+    // Force chiusura eventuali processi child
+    if (process.platform === 'win32') {
+      try {
+        const { execSync } = require('child_process');
+        // Killa eventuali processi node/electron figli
+        execSync('taskkill /F /FI "WINDOWTITLE eq File Recovery Pro*" 2>nul', { timeout: 2000 });
+      } catch {}
+    }
+    
+    logger.info('Cleanup completed');
+  } catch (err) {
+    logger.error('Cleanup error', { error: err.message });
+  }
+});
+
 // Helper sicuro per inviare eventi al renderer
 const send = (channel, data) => {
   try { if (win && !win.isDestroyed()) win.webContents.send(channel, data); }

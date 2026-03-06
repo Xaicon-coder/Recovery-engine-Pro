@@ -361,10 +361,17 @@ Le contribuzioni sono benvenute! Per favore:
 
 ## 📚 Documentazione
 
-- **[OTTIMIZZAZIONI v3.0](OTTIMIZZAZIONI_v3.0.md)** - Dettagli tecnici performance
-- **[CHANGELOG](CHANGELOG.md)** - Storia versioni
-- **[GUIDA RAPIDA](GUIDA_RAPIDA.md)** - Quick start
-- **[CONFRONTO PRIMA/DOPO](CONFRONTO_PRIMA_DOPO.md)** - Metriche v2.5 vs v3.0
+### Essenziale (Root)
+- **[INSTALL.md](INSTALL.md)** - Istruzioni installazione complete
+- **[TROUBLESHOOTING_INSTALL.md](TROUBLESHOOTING_INSTALL.md)** - Risoluzione problemi
+- **[README_FIRST.txt](README_FIRST.txt)** - Guida rapida (leggi prima!)
+
+### Avanzata (Cartella docs/)
+- **[OTTIMIZZAZIONI v3.0](docs/OTTIMIZZAZIONI_v3.0.md)** - Dettagli tecnici performance
+- **[CHANGELOG](docs/CHANGELOG.md)** - Storia versioni complete
+- **[FEATURES](docs/FEATURES.md)** - Lista funzionalità dettagliata
+- **[GUIDA RAPIDA](docs/GUIDA_RAPIDA.md)** - Quick start italiano
+- **[CONFRONTO](docs/CONFRONTO_PRIMA_DOPO.md)** - Metriche v2.5 vs v3.0
 
 ---
 
