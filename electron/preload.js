@@ -23,4 +23,19 @@ contextBridge.exposeInMainWorld('api', {
     check:   ()  => ipcRenderer.invoke('updater:check'),
     onEvent: fn  => on('updater', fn),
   },
+  export: {
+    csv:      p  => ipcRenderer.invoke('export:csv', p),
+    json:     p  => ipcRenderer.invoke('export:json', p),
+    stats:    p  => ipcRenderer.invoke('export:stats', p),
+    pickFile: n  => ipcRenderer.invoke('export:pickfile', n),
+  },
+  notification: {
+    show: p => ipcRenderer.invoke('notification:show', p),
+  },
+  log: {
+    scanStart:      p => ipcRenderer.invoke('log:scan-start', p),
+    scanComplete:   p => ipcRenderer.invoke('log:scan-complete', p),
+    recoveryStart:  p => ipcRenderer.invoke('log:recovery-start', p),
+    recoveryComplete: p => ipcRenderer.invoke('log:recovery-complete', p),
+  },
 });

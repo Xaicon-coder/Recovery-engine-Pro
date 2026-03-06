@@ -52,9 +52,23 @@ const MOCK = (() => {
           const ph = phases[pi];
           pct = Math.min(pct + 5 + Math.random()*9, 100);
           cb({ type:'progress', phase:ph.id, pct:Math.round(pct), msg:ph.msgs[pct>66?Math.min(2,ph.msgs.length-1):pct>33?1:0] });
-          if (fi < ph.items.length && Math.random()>.38) cb({ type:'file', file:ph.items[fi++], total:++total });
+          
+          // Invia file in batch (2-5 file alla volta per simulare il batching reale)
+          const batchSize = Math.min(2 + Math.floor(Math.random() * 3), ph.items.length - fi);
+          if (batchSize > 0 && Math.random()>.38) {
+            const batch = ph.items.slice(fi, fi + batchSize);
+            cb({ type:'files_batch', files:batch, total:total + batch.length });
+            fi += batchSize;
+            total += batchSize;
+          }
+          
           if (pct >= 100) {
-            while (fi < ph.items.length) cb({ type:'file', file:ph.items[fi++], total:++total });
+            // Invia i file rimanenti
+            if (fi < ph.items.length) {
+              const remaining = ph.items.slice(fi);
+              cb({ type:'files_batch', files:remaining, total:total + remaining.length });
+              total += remaining.length;
+            }
             pi++; pct=0; fi=0;
             if (pi >= phases.length) { clearInterval(t); cb({ type:'done', total }); }
           }
@@ -84,6 +98,21 @@ const MOCK = (() => {
         }, 600);
         return () => { clearTimeout(t1); clearTimeout(t2); clearInterval(t3); };
       },
+    },
+    export: {
+      csv:      async () => ({ ok:true, path:'C:\\Export\\results.csv', count:100 }),
+      json:     async () => ({ ok:true, path:'C:\\Export\\results.json', count:100 }),
+      stats:    async () => ({ ok:true, path:'C:\\Export\\stats.json' }),
+      pickFile: async (n) => 'C:\\Export\\' + n,
+    },
+    notification: {
+      show: () => {},
+    },
+    log: {
+      scanStart:       () => {},
+      scanComplete:    () => {},
+      recoveryStart:   () => {},
+      recoveryComplete: () => {},
     },
   };
 })();
@@ -137,17 +166,36 @@ export default function App() {
     setSel([]);
     setView('scanning');
 
+    // Log inizio scan
+    const startTime = Date.now();
+    if (IS_EL) await API.log.scanStart({ ...opts, isAdmin: sysInfo?.isAdmin });
+
     // Timer flush batch ogni 80ms
     flushTimerRef.current = setInterval(flushFiles, 80);
 
     const cleanup = API.scan.onEvent(ev => {
       if      (ev.type === 'progress') setScan(s => ({ ...s, phase:ev.phase, pct:ev.pct, msg:ev.msg }));
-      else if (ev.type === 'file')     fileBufferRef.current.push(ev.file);
+      else if (ev.type === 'file')     fileBufferRef.current.push(ev.file); // retrocompatibilità
+      else if (ev.type === 'files_batch') {
+        // Nuovo sistema batch - aggiungi direttamente al buffer
+        fileBufferRef.current.push(...ev.files);
+      }
       else if (ev.type === 'done') {
         // Flush finale garantito
         flushFiles();
         clearInterval(flushTimerRef.current);
         setScan(s => ({ ...s, done:true, pct:100 }));
+        
+        // Log completamento e notifica
+        const duration = Date.now() - startTime;
+        if (IS_EL) {
+          API.log.scanComplete({ total: ev.total || 0, duration });
+          API.notification.show({
+            title: 'Scansione Completata',
+            body: `${ev.total || 0} file trovati in ${(duration/1000).toFixed(1)}s`
+          });
+        }
+        
         setTimeout(() => setView('results'), 500);
       }
     });
@@ -180,6 +228,9 @@ export default function App() {
     setRec({ status:'recovering', ok:0, fail:0, total:files.length, dest:destination, log:[] });
     setView('recovery');
 
+    // Log inizio recovery
+    if (IS_EL) await API.log.recoveryStart({ count: files.length, dest: destination });
+
     if (IS_EL) {
       const unTick = API.recover.onTick(({ id, ok, target, error, skip, size }) =>
         setRec(r => ({
@@ -192,6 +243,13 @@ export default function App() {
       const unDone = API.recover.onDone(({ ok, fail }) => {
         unTick(); unDone();
         setRec(r => ({ ...r, status:'done', ok, fail }));
+        
+        // Log completamento e notifica
+        API.log.recoveryComplete({ ok, fail });
+        API.notification.show({
+          title: 'Recupero Completato',
+          body: `${ok} file recuperati${fail > 0 ? `, ${fail} errori` : ''}`
+        });
       });
       await API.recover.files({ files, dest: destination });
     } else {

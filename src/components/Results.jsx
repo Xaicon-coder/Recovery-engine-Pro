@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
+import ExportPanel from './ExportPanel';
 
 const fmtSize = b => !b ? '0 B' : b>=1e9 ? (b/1e9).toFixed(1)+' GB' : b>=1e6 ? (b/1e6).toFixed(0)+' MB' : b>=1e3 ? (b/1e3).toFixed(0)+' KB' : b+' B';
 
@@ -47,6 +48,7 @@ export default function Results({ files, sel, setSel, dest, setDest, onRecover, 
   const [srcFilt, setSrcFilt] = useState([]);
   const [typFilt, setTypFilt] = useState([]);
   const [sort,    setSort]    = useState({ k:'source', dir:1 });
+  const [showExport, setShowExport] = useState(false);
 
   // Calcola sorgenti e tipi una sola volta (files è stabile dopo scan)
   const allSrc   = useMemo(() => [...new Set(files.map(f => f.source))].sort((a,b) => SRC_ORDER.indexOf(a)-SRC_ORDER.indexOf(b)), [files]);
@@ -132,6 +134,11 @@ export default function Results({ files, sel, setSel, dest, setDest, onRecover, 
         <button onClick={onReset}
           style={{ padding:'7px 10px', border:'1px solid var(--b0)', borderRadius:5, fontFamily:'var(--mono)', fontSize:7.5, color:'var(--t2)', background:'transparent', cursor:'pointer', letterSpacing:'.08em', flexShrink:0 }}>
           RESET
+        </button>
+
+        <button onClick={() => setShowExport(true)}
+          style={{ padding:'7px 10px', border:'1px solid var(--a0)', borderRadius:5, fontFamily:'var(--mono)', fontSize:7.5, color:'var(--a0)', background:'rgba(255,204,0,.04)', cursor:'pointer', letterSpacing:'.08em', flexShrink:0 }}>
+          EXPORT
         </button>
       </div>
 
@@ -228,6 +235,14 @@ export default function Results({ files, sel, setSel, dest, setDest, onRecover, 
           </div>
         </div>
       </div>
+
+      {/* Export Panel */}
+      {showExport && (
+        <ExportPanel
+          files={visible.length > 0 ? visible : files}
+          onClose={() => setShowExport(false)}
+        />
+      )}
     </div>
   );
 }

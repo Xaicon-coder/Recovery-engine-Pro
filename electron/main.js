@@ -1,12 +1,24 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification } = require('electron');
 const path   = require('path');
 const fs     = require('fs');
 const os     = require('os');
 const crypto = require('crypto');
 const { autoUpdater } = require('electron-updater');
 const Recovery = require('./recovery');
+const { exportCSV, exportJSON, exportStats } = require('./export');
+const { getLogger } = require('./logger');
+
+// Inizializza logger
+const logger = getLogger({
+  level: IS_DEV ? 'DEBUG' : 'INFO',
+  logToFile: true,
+  logToConsole: IS_DEV
+});
+
+// Cleanup logs vecchi all'avvio
+logger.cleanupOldLogs(30);
 
 Menu.setApplicationMenu(null);
 const IS_DEV = process.env.NODE_ENV === 'development';
@@ -241,4 +253,84 @@ ipcMain.handle('shell:opendir', (_, p) => {
       : path.dirname(p);
     if (fs.existsSync(dir)) shell.openPath(dir);
   } catch {}
+});
+
+// ─── Export risultati ─────────────────────────────────────────────────────────
+ipcMain.handle('export:csv', async (_, { files, outputPath }) => {
+  try {
+    logger.info('Exporting to CSV', { count: files.length, path: outputPath });
+    const result = exportCSV(files, outputPath);
+    logger.info('CSV export completed', result);
+    return result;
+  } catch (err) {
+    logger.error('CSV export failed', { error: err.message });
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('export:json', async (_, { files, outputPath }) => {
+  try {
+    logger.info('Exporting to JSON', { count: files.length, path: outputPath });
+    const result = exportJSON(files, outputPath);
+    logger.info('JSON export completed', result);
+    return result;
+  } catch (err) {
+    logger.error('JSON export failed', { error: err.message });
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('export:stats', async (_, { files, outputPath }) => {
+  try {
+    logger.info('Exporting statistics', { count: files.length, path: outputPath });
+    const result = exportStats(files, outputPath);
+    logger.info('Stats export completed', result);
+    return result;
+  } catch (err) {
+    logger.error('Stats export failed', { error: err.message });
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('export:pickfile', async (_, defaultName) => {
+  const result = await dialog.showSaveDialog(win, {
+    title: 'Salva risultati scansione',
+    defaultPath: path.join(os.homedir(), 'Desktop', defaultName),
+    filters: [
+      { name: 'CSV Files', extensions: ['csv'] },
+      { name: 'JSON Files', extensions: ['json'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+  return result.filePath ?? null;
+});
+
+// ─── Notifiche desktop ────────────────────────────────────────────────────────
+ipcMain.handle('notification:show', (_, { title, body }) => {
+  if (Notification.isSupported()) {
+    try {
+      const notification = new Notification({ title, body });
+      notification.show();
+      logger.debug('Notification shown', { title, body });
+    } catch (err) {
+      logger.warn('Failed to show notification', { error: err.message });
+    }
+  }
+});
+
+// ─── Logging eventi scan/recovery ─────────────────────────────────────────────
+ipcMain.handle('log:scan-start', (_, opts) => {
+  logger.logScanStart(opts);
+});
+
+ipcMain.handle('log:scan-complete', (_, { total, duration }) => {
+  logger.logScanComplete(total, duration);
+});
+
+ipcMain.handle('log:recovery-start', (_, { count, dest }) => {
+  logger.logRecoveryStart(count, dest);
+});
+
+ipcMain.handle('log:recovery-complete', (_, { ok, fail }) => {
+  logger.logRecoveryComplete(ok, fail);
 });

@@ -1,15 +1,7 @@
 'use strict';
 
 /**
- * FILE RECOVERY ENGINE — Livello professionale con ottimizzazioni performance
- *
- * OTTIMIZZAZIONI v3.0:
- * ✓ Batching intelligente: file inviati in gruppi di 100 invece che uno alla volta
- * ✓ Throttling eventi: max 1 aggiornamento progress ogni 150ms
- * ✓ Yield ultra-frequente: ogni 30 iterazioni invece di 150
- * ✓ Buffer management: controllo memoria e flush automatico
- * ✓ Deduplicazione ottimizzata con Set
- * ✓ Stream processing: UI sempre responsiva anche con 100k+ file
+ * FILE RECOVERY ENGINE — Livello professionale
  *
  * Architettura scansione (in ordine di affidabilità):
  *
@@ -29,15 +21,6 @@ const { execSync } = require('child_process');
 
 const IS_WIN = process.platform === 'win32';
 const HOME   = os.homedir();
-
-// ─── CONFIGURAZIONE PERFORMANCE ───────────────────────────────────────────────
-const PERF_CONFIG = {
-  BATCH_SIZE:           100,   // File da inviare per batch
-  BATCH_FLUSH_MS:       150,   // Flush automatico del batch ogni N ms
-  YIELD_EVERY:          30,    // Yield event loop ogni N iterazioni
-  PROGRESS_THROTTLE_MS: 150,   // Min tempo tra aggiornamenti progress
-  MAX_BUFFER_SIZE:      50000, // Max file in memoria prima di forzare flush
-};
 
 // ─── Mappa estensioni → categoria ─────────────────────────────────────────────
 const EXT_MAP = {};
@@ -112,7 +95,7 @@ const SKIP_DIRS = new Set([
   'Windows','System32','SysWOW64','WinSxS','Program Files','Program Files (x86)',
   'ProgramData','node_modules','.git','__pycache__','$Recycle.Bin',
   'System Volume Information','Recovery','PerfLogs','$WinREAgent','MSOCache',
-  'WindowsApps','servicing','assembly','Prefetch','drivers','inf','Installer',
+  'WindowsApps','servicing','assembly','Prefetch','drivers','inf',
 ]);
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
@@ -204,114 +187,6 @@ function fallbackDrives() {
   return found.length ? found : [{ id:'C:', label:'C:', path:'C:\\', fs:'NTFS', total:0, free:0, type:'fixed' }];
 }
 
-// ─── BATCH MANAGER — gestisce l'invio in batch dei file ──────────────────────
-class BatchManager {
-  constructor(emit, batchSize = PERF_CONFIG.BATCH_SIZE) {
-    this.emit = emit;
-    this.batchSize = batchSize;
-    this.buffer = [];
-    this.total = 0;
-    this.lastFlush = Date.now();
-    this.flushTimer = null;
-    
-    // Auto-flush ogni BATCH_FLUSH_MS
-    this.startAutoFlush();
-  }
-
-  startAutoFlush() {
-    this.flushTimer = setInterval(() => {
-      if (this.buffer.length > 0) {
-        this.flush();
-      }
-    }, PERF_CONFIG.BATCH_FLUSH_MS);
-  }
-
-  add(file) {
-    this.buffer.push(file);
-    this.total++;
-    
-    // Flush se il buffer è pieno o se è passato troppo tempo
-    if (this.buffer.length >= this.batchSize || 
-        this.buffer.length >= PERF_CONFIG.MAX_BUFFER_SIZE) {
-      this.flush();
-    }
-  }
-
-  flush() {
-    if (this.buffer.length === 0) return;
-    
-    // Invia il batch completo in un singolo evento
-    this.emit({ 
-      type: 'files_batch', 
-      files: this.buffer.splice(0), 
-      total: this.total 
-    });
-    
-    this.lastFlush = Date.now();
-  }
-
-  destroy() {
-    if (this.flushTimer) {
-      clearInterval(this.flushTimer);
-      this.flushTimer = null;
-    }
-    // Flush finale
-    this.flush();
-  }
-}
-
-// ─── PROGRESS THROTTLER — limita frequenza aggiornamenti progress ────────────
-class ProgressThrottler {
-  constructor(emit, throttleMs = PERF_CONFIG.PROGRESS_THROTTLE_MS) {
-    this.emit = emit;
-    this.throttleMs = throttleMs;
-    this.lastEmit = 0;
-    this.pending = null;
-    this.timer = null;
-  }
-
-  update(phase, pct, msg, total) {
-    const now = Date.now();
-    const data = { type: 'progress', phase, pct: Math.min(100, Math.round(pct)), msg, total };
-    
-    // Se è passato abbastanza tempo, invia subito
-    if (now - this.lastEmit >= this.throttleMs) {
-      this.emit(data);
-      this.lastEmit = now;
-      this.pending = null;
-      if (this.timer) {
-        clearTimeout(this.timer);
-        this.timer = null;
-      }
-    } else {
-      // Altrimenti salva come pending e schedula invio
-      this.pending = data;
-      if (!this.timer) {
-        this.timer = setTimeout(() => {
-          if (this.pending) {
-            this.emit(this.pending);
-            this.lastEmit = Date.now();
-            this.pending = null;
-          }
-          this.timer = null;
-        }, this.throttleMs - (now - this.lastEmit));
-      }
-    }
-  }
-
-  destroy() {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    // Invia l'ultimo pending se c'è
-    if (this.pending) {
-      this.emit(this.pending);
-      this.pending = null;
-    }
-  }
-}
-
 // ─── SCAN ENGINE ──────────────────────────────────────────────────────────────
 function scan(opts, emit, isStopped) {
   _seq = 0;
@@ -319,95 +194,67 @@ function scan(opts, emit, isStopped) {
 }
 
 async function runScan(opts, emit, isStopped) {
-  // Inizializza batch manager e progress throttler
-  const batchMgr = new BatchManager(emit);
-  const progressThrottler = new ProgressThrottler(emit);
-  
   // Deduplication su path fisico del file sorgente
-  const seen = new Set();
+  const seen  = new Set();
+  let   total = 0;
 
   function add(f) {
     const key = f.path.toLowerCase();
     if (seen.has(key)) return;
     if (opts.types?.length && !opts.types.includes(f.type)) return;
     seen.add(key);
-    batchMgr.add(f);
+    total++;
+    emit({ type: 'file', file: f, total });
   }
 
   const progress = (phase, pct, msg) =>
-    progressThrottler.update(phase, pct, msg, batchMgr.total);
+    emit({ type: 'progress', phase, pct: Math.min(100, Math.round(pct)), msg, total });
 
   try {
     // ── FASE 1: $Recycle.Bin ─────────────────────────────────────────────────
     progress('recycle', 1, 'Lettura Cestino di sistema ($Recycle.Bin)...');
-    const r0 = batchMgr.total;
+    const r0 = total;
     await scanRecycleBin(opts.drive, add, isStopped);
-    batchMgr.flush(); // Flush esplicito dopo ogni fase
-    progress('recycle', 100, `Cestino: ${batchMgr.total - r0} file intatti recuperabili`);
-    if (isStopped()) {
-      batchMgr.destroy();
-      progressThrottler.destroy();
-      return emit({ type: 'done', total: batchMgr.total });
-    }
+    progress('recycle', 100, `Cestino: ${total - r0} file intatti recuperabili`);
+    if (isStopped()) return emit({ type: 'done', total });
 
     // ── FASE 2: Volume Shadow Copies (VSS) ───────────────────────────────────
     if (IS_WIN && opts.isAdmin && opts.mode !== 'quick') {
-      const r1 = batchMgr.total;
+      const r1 = total;
       progress('vss', 1, 'Ricerca Volume Shadow Copies (snapshot)...');
       await scanVSS(opts.drive, add, isStopped, (p, m) => progress('vss', p, m));
-      batchMgr.flush();
-      progress('vss', 100, `Shadow Copy: ${batchMgr.total - r1} file trovati`);
-      if (isStopped()) {
-        batchMgr.destroy();
-        progressThrottler.destroy();
-        return emit({ type: 'done', total: batchMgr.total });
-      }
+      progress('vss', 100, `Shadow Copy: ${total - r1} file trovati`);
+      if (isStopped()) return emit({ type: 'done', total });
     }
 
     // ── FASE 3: Cartelle utente ───────────────────────────────────────────────
     if (opts.mode !== 'quick') {
       progress('user', 1, 'Scansione cartelle utente...');
       await scanUserFolders(add, isStopped, (p, m) => progress('user', p, m));
-      batchMgr.flush();
-      progress('user', 100, `Cartelle utente: ${batchMgr.total} file totali`);
-      if (isStopped()) {
-        batchMgr.destroy();
-        progressThrottler.destroy();
-        return emit({ type: 'done', total: batchMgr.total });
-      }
+      progress('user', 100, `Cartelle utente: ${total} file totali`);
+      if (isStopped()) return emit({ type: 'done', total });
     }
 
     // ── FASE 4: Filesystem completo ───────────────────────────────────────────
     if (opts.mode === 'deep' || opts.mode === 'full') {
       progress('filesystem', 1, `Scansione filesystem ${opts.drive || 'C:'}...`);
       await scanFilesystem(opts.drive, add, isStopped, (p, m) => progress('filesystem', p, m));
-      batchMgr.flush();
-      if (isStopped()) {
-        batchMgr.destroy();
-        progressThrottler.destroy();
-        return emit({ type: 'done', total: batchMgr.total });
-      }
+      if (isStopped()) return emit({ type: 'done', total });
     }
 
     // ── FASE 5: USN Change Journal ────────────────────────────────────────────
+    // fsutil.exe è disponibile su qualsiasi Windows senza audit policy speciali
     if (opts.mode === 'full' && IS_WIN && opts.isAdmin) {
-      const r4 = batchMgr.total;
+      const r4 = total;
       progress('usn', 1, 'Analisi USN Change Journal (NTFS)...');
       await scanUSNJournal(opts.drive, add, isStopped, (p, m) => progress('usn', p, m));
-      batchMgr.flush();
-      progress('usn', 100, `Journal NTFS: ${batchMgr.total - r4} riferimenti aggiuntivi`);
+      progress('usn', 100, `Journal NTFS: ${total - r4} riferimenti aggiuntivi`);
     }
 
-    // Cleanup e completamento
-    batchMgr.destroy();
-    progressThrottler.destroy();
-    
-    progress('done', 100, `Completato — ${batchMgr.total} file trovati`);
-    emit({ type: 'done', total: batchMgr.total });
+    progress('done', 100, `Completato — ${total} file trovati`);
+    emit({ type: 'done', total });
 
   } catch (err) {
-    batchMgr?.destroy();
-    progressThrottler?.destroy();
     emit({ type: 'error', message: err.message });
   }
 }
@@ -415,12 +262,12 @@ async function runScan(opts, emit, isStopped) {
 // ─── FASE 1: $Recycle.Bin ────────────────────────────────────────────────────
 async function scanRecycleBin(drive, add, isStopped) {
   if (IS_WIN) {
-    // Scansiona su TUTTI i drive, non solo quello selezionato
+    // Scansiona su TUTTI i drive, non solo quello selezionato:
+    // un file eliminato da D:\ sta in D:\$Recycle.Bin anche se scansioniamo C:
     const letters = drive
       ? [drive.replace(/[:\\\/]/g, '')]
       : 'CDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
-    let iterCount = 0;
     for (const letter of letters) {
       if (isStopped()) return;
       const rbRoot = letter + ':\\$Recycle.Bin';
@@ -434,12 +281,6 @@ async function scanRecycleBin(drive, add, isStopped) {
 
         for (const entry of listDir(sidDir)) {
           if (isStopped()) return;
-          
-          // Yield più frequente per mantenere UI responsiva
-          if (++iterCount % PERF_CONFIG.YIELD_EVERY === 0) {
-            await yield_();
-          }
-          
           // $R = contenuto originale del file
           // $I = metadati (percorso originale, data eliminazione)
           if (!entry.name.startsWith('$R')) continue;
@@ -456,12 +297,20 @@ async function scanRecycleBin(drive, add, isStopped) {
             try {
               const buf = fs.readFileSync(iFile);
               // Struttura file $I (documentata da Joachim Metz / libforensics):
+              //   Bytes  0-7:  Versione (1 = Vista/7, 2 = Win8+) — UINT64 LE
+              //   Bytes  8-15: Dimensione originale — UINT64 LE
+              //   Bytes 16-23: Timestamp eliminazione — FILETIME (100ns since 1601-01-01)
+              //   Bytes 24-27: [solo ver.2] Numero caratteri nel path — UINT32 LE
+              //   Bytes 24/28: Path UTF-16LE null-terminated
               if (buf.length >= 24) {
+                // Leggi versione come UINT32 (i primi 4 byte bastano: 1 o 2)
                 const version = buf.readUInt32LE(0);
 
                 // Converti FILETIME → JavaScript Date
+                // FILETIME = uint64 LE, 100-nanosecond intervals since 1601-01-01
                 const ftLo = buf.readUInt32LE(16);
                 const ftHi = buf.readUInt32LE(20);
+                // ms = (ftHi * 2^32 + ftLo) / 10000 − diff_ms_1601_to_1970
                 const ms = (ftHi * 4294967296 + ftLo) / 10000 - 11644473600000;
                 if (ms > 0 && ms < Date.now() + 86400000) {
                   deletedAt = new Date(ms);
@@ -473,6 +322,7 @@ async function scanRecycleBin(drive, add, isStopped) {
                   const raw = buf.slice(pathStart).toString('utf16le');
                   const nul = raw.indexOf('\0');
                   const p   = (nul >= 0 ? raw.slice(0, nul) : raw).trim();
+                  // Valida: deve sembrare un path Windows (lettera:\ ...)
                   if (p.length > 3 && /^[A-Za-z]:\\/.test(p)) {
                     origPath = p;
                   }
@@ -505,14 +355,8 @@ async function scanRecycleBin(drive, add, isStopped) {
     const trashInfo  = path.join(HOME, '.local/share/Trash/info');
     if (!exists(trashFiles)) return;
 
-    let iterCount = 0;
     for (const e of listDir(trashFiles)) {
       if (isStopped() || !e.isFile()) continue;
-      
-      if (++iterCount % PERF_CONFIG.YIELD_EVERY === 0) {
-        await yield_();
-      }
-      
       const fp = path.join(trashFiles, e.name);
       const st = statFile(fp);
       if (!st) continue;
@@ -536,7 +380,7 @@ async function scanRecycleBin(drive, add, isStopped) {
 async function scanVSS(drive, add, isStopped, onP) {
   const letter = (drive || 'C:').replace(/[:\\\/]/g, '');
 
-  // Elenca shadow copies tramite vssadmin
+  // Elenca shadow copies tramite vssadmin (disponibile senza WMI)
   const vssOut = safeExec(
     `vssadmin list shadows /for=${letter}: 2>nul`,
     20000
@@ -565,6 +409,7 @@ async function scanVSS(drive, add, isStopped, onP) {
       const p = path.join(shadow, d);
       if (exists(p)) {
         await walkDir(p, (f) => {
+          // Imposta source e confidence corretti per file da shadow copy
           f.source     = 'Shadow Copy';
           f.intact     = true;
           f.confidence = 95;
@@ -603,7 +448,7 @@ async function scanUserFolders(add, isStopped, onP) {
   for (let i = 0; i < folders.length; i++) {
     if (isStopped()) return;
     onP(Math.round((i / folders.length) * 95), path.basename(folders[i]) + '...');
-    // min 512 byte per cartelle utente
+    // min 512 byte per cartelle utente (possono esserci file piccoli legittimi)
     await walkDir(folders[i], add, isStopped, 'Temp', 4, null, 512);
   }
 }
@@ -623,17 +468,20 @@ async function scanFilesystem(drive, add, isStopped, onP) {
   for (const root of roots) {
     await walkDir(root, add, isStopped, 'Filesystem', 12, () => {
       n++;
-      if (n % 200 === 0) onP(Math.min(95, n / 300), n.toLocaleString() + ' file analizzati...');
+      if (n % 500 === 0) onP(Math.min(95, n / 300), n.toLocaleString() + ' file analizzati...');
     }, 4096); // solo file > 4KB nel filesystem scan generale
   }
   onP(100, 'Filesystem completato');
 }
 
 // ─── FASE 5: USN Change Journal ───────────────────────────────────────────────
+// fsutil usn readjournal → lista MFT con flag di cancellazione
+// Non richiede audit policy, solo admin. Funziona su qualsiasi NTFS.
 async function scanUSNJournal(drive, add, isStopped, onP) {
   const letter = (drive || 'C:').replace(/[:\\\/]/g, '');
 
-  // Leggi il journal con fsutil
+  // Leggi il journal con fsutil — output: MFT record con Nome, Path, Reason
+  // 0x80000200 = CLOSE | FILE_DELETE
   const out = safeExec(
     `fsutil usn readjournal ${letter}: csv 2>nul`,
     30000
@@ -645,16 +493,9 @@ async function scanUSNJournal(drive, add, isStopped, onP) {
   }
 
   let n = 0;
-  let iterCount = 0;
   const lines = out.split('\n');
   for (const line of lines) {
     if (isStopped()) return;
-    
-    // Yield più frequente
-    if (++iterCount % PERF_CONFIG.YIELD_EVERY === 0) {
-      await yield_();
-    }
-    
     // Formato CSV: MajorVersion,MinorVersion,Usn,TimeStamp,Reason,SourceInfo,SecurityId,FileAttributes,FileName,ParentMFT
     const cols = line.split(',');
     if (cols.length < 9) continue;
@@ -663,13 +504,15 @@ async function scanUSNJournal(drive, add, isStopped, onP) {
     const fileName = cols[8]?.trim().replace(/^"|"$/g, '') || '';
 
     // Filtra solo le righe di cancellazione
+    // Reason flag 0x200 = FILE_DELETE, 0x80000000 = CLOSE
     if (!reason.includes('0x80000200') && !reason.toLowerCase().includes('delete')) continue;
     if (!fileName || !path.extname(fileName)) continue;
 
     const ext  = path.extname(fileName).toLowerCase();
     const type = typeOf(ext);
-    if (type === 'other') continue;
+    if (type === 'other') continue; // salta file sistema senza tipo riconoscibile
 
+    // Il journal non contiene il path completo, solo il nome — non possiamo sapere se il file esiste ancora
     n++;
     add(mkFile({
       path:       `${letter}:\\[Journal#${n}]\\${fileName}`,
@@ -685,26 +528,19 @@ async function scanUSNJournal(drive, add, isStopped, onP) {
   onP(100, `Journal NTFS: ${n} record trovati`);
 }
 
-// ─── WALKER ricorsivo OTTIMIZZATO ─────────────────────────────────────────────
+// ─── WALKER ricorsivo ─────────────────────────────────────────────────────────
 async function walkDir(dir, add, isStopped, source, maxDepth, onFile, minSize = 1024, depth = 0) {
   if (depth > maxDepth || !exists(dir) || isStopped()) return;
 
   const entries = listDir(dir);
   let n = 0;
-  let iterCount = 0;
 
   for (const e of entries) {
     if (isStopped()) return;
-    
-    // Yield MOLTO più frequente per mantenere UI ultra-responsiva
-    if (++iterCount % PERF_CONFIG.YIELD_EVERY === 0) {
-      await yield_();
-    }
-    
     const fp = path.join(dir, e.name);
 
     if (e.isDirectory()) {
-      // Skip directory di sistema
+      // FIX precedenza operatori: parentesi obbligatorie attorno all'&&
       if (SKIP_DIRS.has(e.name) || (e.name.startsWith('.') && depth > 0)) continue;
       await walkDir(fp, add, isStopped, source, maxDepth, onFile, minSize, depth + 1);
 
@@ -715,13 +551,16 @@ async function walkDir(dir, add, isStopped, source, maxDepth, onFile, minSize = 
       const name = e.name;
       const ext  = path.extname(name).toLowerCase();
 
-      // In filesystem scan salta file senza tipo riconoscibile
+      // In filesystem scan salta file senza tipo riconoscibile (troppo rumore)
       if (source === 'Filesystem' && typeOf(ext) === 'other') continue;
 
       add(mkFile({ path:fp, name, ext, st, source, origPath:fp, origDir:dir }));
       n++;
       if (onFile) onFile(n);
     }
+
+    // Yield ogni 150 iterazioni — mantiene UI responsiva senza rallentare troppo
+    if (n % 150 === 0) await yield_();
   }
 }
 
